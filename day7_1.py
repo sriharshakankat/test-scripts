@@ -1,12 +1,15 @@
-def solve():
-    # Read the input grid
-    with open("input.txt") as f:
+import sys
+from collections import deque
+
+def solve(filename):
+    # Read input grid
+    with open(filename) as f:
         grid = [list(line.rstrip("\n")) for line in f]
 
     rows = len(grid)
     cols = len(grid[0])
 
-    # Find S (starting position)
+    # Locate 'S' in the top row
     start_col = None
     for c in range(cols):
         if grid[0][c] == 'S':
@@ -14,48 +17,57 @@ def solve():
             break
 
     if start_col is None:
-        raise ValueError("No starting point 'S' found in the top row.")
+        print("Error: No 'S' found in first row.")
+        return
 
-    # Active beams stored as list of (row, col)
-    beams = [(0, start_col)]
+    # Queue for BFS of beams
+    queue = deque()
+    queue.append((0, start_col))
+
+    # Track visited beams: (row, col)
+    # Prevents processing same downward beam more than once
+    visited = set()
+    visited.add((0, start_col))
 
     split_count = 0
 
-    # Process beams until all are done
-    while beams:
-        new_beams = []
+    while queue:
+        r, c = queue.popleft()
 
-        for r, c in beams:
-            nr = r + 1  # move downward
+        nr = r + 1
+        if nr >= rows:
+            continue  # exits manifold
 
-            # Beam leaves manifold
-            if nr >= rows:
-                continue
+        cell = grid[nr][c]
 
-            cell = grid[nr][c]
+        # If beam arrives here for first time
+        if (nr, c) not in visited:
+            visited.add((nr, c))
 
             if cell == '.':
-                # Continue downward
-                new_beams.append((nr, c))
+                queue.append((nr, c))
 
             elif cell == '^':
-                # Split event
                 split_count += 1
-                # Left beam
-                if c - 1 >= 0:
-                    new_beams.append((nr, c - 1))
-                # Right beam
-                if c + 1 < cols:
-                    new_beams.append((nr, c + 1))
+
+                # left beam
+                if c - 1 >= 0 and (nr, c - 1) not in visited:
+                    queue.append((nr, c - 1))
+
+                # right beam
+                if c + 1 < cols and (nr, c + 1) not in visited:
+                    queue.append((nr, c + 1))
 
             else:
-                # Any other char treated as empty
-                new_beams.append((nr, c))
-
-        beams = new_beams
+                # Treat any other char as empty
+                queue.append((nr, c))
 
     print(split_count)
 
 
 if __name__ == "__main__":
-    solve()
+    if len(sys.argv) != 2:
+        print("Usage: python3 solve.py <input_file>")
+        sys.exit(1)
+
+    solve(sys.argv[1])
