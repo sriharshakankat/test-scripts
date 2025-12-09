@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+# Advent of Code - Day XX - Red/Green Rectangle Puzzle
+# Fully optimized Part 2 using prefix-sum acceleration
+
+import sys
+from pathlib import Path
+import argparse
+
+
+# -----------------------------------------------------------
+# Utility: Read input file
+# -----------------------------------------------------------
+def read_input(filename="day9_input.txt"):
+    path = Path(filename)
+    if not path.exists():
+        print(f"Error: input file '{filename}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    points = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        x, y = map(int, line.split(","))
+        points.append((x, y))
+    return points
+
+
+# -----------------------------------------------------------
+# Helper: integer points on horizontal/vertical segment
+# -----------------------------------------------------------
+def line_points(a, b):
+    (x1, y1), (x2, y2) = a, b
+    pts = []
+    if x1 == x2:
+        step = 1 if y2 >= y1 else -1
+        for y in range(y1, y2 + step, step):
+            pts.append((x1, y))
+    else:
+        step = 1 if x2 >= x1 else -1
+        for x in range(x1, x2 + step, step):
+            pts.append((x, y1))
+    return pts
+
+
+# -----------------------------------------------------------
+# Polygon interior fill (via scanline) – produces green interior
+# -----------------------------------------------------------
+def fill_polygon(red_points):
+    n = len(red_points)
+    edges = []
+    for i in range(n):
+        a = red_points[i]
+        b = red_points[(i + 1) % n]
+        edges.append((a, b))
+
+    xs = [p[0] for p in red_points]
+    ys = [p[1] for p in red_points]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+
+    interior = set()
+
+    # Scanline for each y
+    for y in range(min_y, max_y + 1):
+        inter = []
+        for (x1, y1), (x2, y2) in edges:
+            if y1 == y2:
+                continue
+            if (y >= min(y1, y2)) and (y < max(y1, y2)):
+                if x1 == x2:
+                    x_cross = x1
+                else:
+                    # Parametric interpolation
+                    t = (y - y1) / (y2 - y1)
+                    x_cross = x1 + t * (x2 - x1)
+                inter.append(x_cross)
+
+        inter.sort()
+
+        for i in range(0, len(inter), 2):
+            x_start = int(round(inter[i]))
+            x_end = int(round(inter[i + 1]))
+            for x in range(x_start, x_end + 1):
+                interior.add((x, y))
+
+    return interior
+
+
+# -----------------------------------------------------------
+# Part 1: simple inclusive rectangle area
+# -----------------------------------------------------------
+def part1(points):
+    max_area = 0
+    n = len(points)
+
+    for i in range(n):
+        x1, y1 = points[i]
+        for j in range(i + 1, n):
+            x2, y2 = points[j]
+            w = abs(x1 - x2) + 1
+            h = abs(y1 - y2) + 1
+            area = w * h
+            if area > max_area:
+                max_area = area
+    return max_area
+
+
+# -----------------------------------------------------------
+# Build prefix sum for allowed tiles
+# -----------------------------------------------------------
+def build_prefix_sum(allowed, min_x, max_x, min_y, max_y):
+    W = max_x - min_x + 1
+    H = max_y - min_y + 1
+
+    grid = [[0] * (H + 1) for _ in range(W + 1)]
+
+    for (x, y) in allowed:
+        grid[x - min_x][y - min_y] = 1
+
+    P = [[0] * (H + 1) for _ in range(W + 1)]
+    for i in range(W):
+        row_sum = 0
+        for j in range(H):
+            row_sum += grid[i][j]
+            P[i][j] = row_sum
+            if i > 0:
+                P[i][j] += P[i - 1][j]
+    return P
+
+
+# -----------------------------------------------------------
+# Query prefix sum rectangle
+# -----------------------------------------------------------
+def rect_sum(P, x1, y1, x2, y2, min_x, min_y):
+    X1 = x1 - min_x
+    Y1 = y1 - min_y
+    X2 = x2 - min_x
+    Y2 = y2 - min_y
+
+    def get(x, y):
+        if x < 0 or y < 0:
+            return 0
+        try:
+            return P[x][y]
+        except IndexError:
+            return 0
+
+    total = get(X2, Y2)
+    total -= get(X1 - 1, Y2)
+    total -= get(X2, Y1 - 1)
+    total += get(X1 - 1, Y1 - 1)
+    return total
+
+
+# -----------------------------------------------------------
+# Part 2 (optimized using prefix sums)
+# -----------------------------------------------------------
+def part2(red_points):
+
+    # 1. Border greens (connecting segments)
+    green = set()
+    n = len(red_points)
+    for i in range(n):
+        a = red_points[i]
+        b = red_points[(i + 1) % n]
+        for p in line_points(a, b):
+            green.add(p)
+
+    # 2. Interior greens
+    green |= fill_polygon(red_points)
+
+    allowed = set(red_points) | green
+
+    # Determine bounding box for prefix table
+    xs = [p[0] for p in allowed]
+    ys = [p[1] for p in allowed]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+
+    # 3. Build prefix sum table
+    P = build_prefix_sum(allowed, min_x, max_x, min_y, max_y)
+
+    # 4. Try every red-red rectangle quickly
+    max_area = 0
+    for i in range(n):
+        x1, y1 = red_points[i]
+        for j in range(i + 1, n):
+            x2, y2 = red_points[j]
+
+            sx, ex = sorted((x1, x2))
+            sy, ey = sorted((y1, y2))
+            area = (ex - sx + 1) * (ey - sy + 1)
+
+            allowed_tiles = rect_sum(P, sx, sy, ex, ey, min_x, min_y)
+
+            if allowed_tiles == area:
+                if area > max_area:
+                    max_area = area
+
+    return max_area
+
+
+# -----------------------------------------------------------
+# Main runner
+# -----------------------------------------------------------
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="AoC Day XX - Red/Green Rectangle Solver")
+    parser.add_argument("input", nargs="?", default="day9_input.txt",
+                        help="input file (default: day9_input.txt)")
+    args = parser.parse_args(argv)
+
+    red_points = read_input(args.input)
+
+    print("=== Advent of Code - Day XX ===")
+
+    print("\n--- Part 1 ---")
+    print(part1(red_points))
+
+    # print("\n--- Part 2 ---")
+    # print(part2(red_points))
+
+
+if __name__ == "__main__":
+    main()
